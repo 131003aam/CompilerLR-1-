@@ -30,6 +30,8 @@ void CodeGenerator::backpatch(int addr, const string& target) {
 }
 
 void CodeGenerator::enterLoop() {
+    // 记录循环条件判断代码的起始地址
+    // 这个地址是条件表达式代码开始的位置，continue 应该跳转到这里
     loopAddrStack.push((int)tacCode.size());
     breakLists.push(vector<int>());
     continueLists.push(vector<int>());
@@ -37,14 +39,20 @@ void CodeGenerator::enterLoop() {
 
 void CodeGenerator::exitLoop() {
     if (loopAddrStack.empty()) return;
+    // testStart 是循环条件判断代码的起始地址（即外层 while 的开始标签）
+    // 这个地址在 enterLoop() 时记录，正好是条件表达式代码开始的位置
     int testStart = loopAddrStack.top();
     loopAddrStack.pop();
+    // 生成跳转到循环开始的指令（跳转到条件判断）
     emit("goto", "", "", "L" + to_string(testStart));
     emitQuad("j", "_", "_", to_string(testStart));
+    // exitAddr 是循环结束的地址
     int exitAddr = (int)tacCode.size();
+    // 回填 break：所有 break 语句跳转到循环结束标签
     vector<int> brks = breakLists.top();
     breakLists.pop();
     for (int addr : brks) backpatch(addr, "L" + to_string(exitAddr));
+    // 回填 continue：所有 continue 语句跳转到条件判断的开始（testStart）
     vector<int> conts = continueLists.top();
     continueLists.pop();
     for (int addr : conts) backpatch(addr, "L" + to_string(testStart));
@@ -60,6 +68,8 @@ void CodeGenerator::handleBreak() {
 }
 
 void CodeGenerator::handleContinue() {
+    // continue 语句应该跳转到当前循环的条件判断开始位置
+    // 这个地址会在 exitLoop() 时被回填为循环条件判断的开始标签
     if (!continueLists.empty()) {
         int addr = (int)tacCode.size();
         emit("goto", "", "", "PENDING_TEST");
@@ -83,12 +93,21 @@ SemItem CodeGenerator::handleProduction(int prodId, const vector<SemItem>& poppe
     
     switch (prodId) {
     case 38: { // M -> epsilon
+        // 在归约 M -> epsilon 时生成条件判断的 jz 指令
+        // 注意：条件表达式的计算代码（L 的代码）在此之前已经生成
+        // enterLoop() 记录的 testStart 就是条件表达式代码开始的位置，也就是循环条件判断的开始
         if (semStack.size() >= 2) {
             SemItem lResult = semStack[semStack.size() - 2];
-            int jzIdx = (int)tacCode.size();
-            emit("jz", lResult.name, "", "PENDING_EXIT");
-            emitQuad("jz", lResult.name, "_", "PENDING_EXIT");
-            if (!breakLists.empty()) breakLists.top().push_back(jzIdx);
+            // 优化：如果条件是常量 true，则不需要条件判断（无限循环）
+            if (lResult.name == "true") {
+                // 对于 while(true)，不需要生成条件判断，直接进入循环体
+                // break 语句会在 exitLoop() 中正确回填到循环结束标签
+            } else {
+                int jzIdx = (int)tacCode.size();
+                emit("jz", lResult.name, "", "PENDING_EXIT");
+                emitQuad("jz", lResult.name, "_", "PENDING_EXIT");
+                if (!breakLists.empty()) breakLists.top().push_back(jzIdx);
+            }
         }
         break;
     }
@@ -137,24 +156,54 @@ SemItem CodeGenerator::handleProduction(int prodId, const vector<SemItem>& poppe
     case 24: case 8: 
         res.name = popped[1].name; 
         break;
-    case 31: case 32: {
-        string targetId = (prodId == 31 ? popped[0].name : popped[1].name);
-        string t = newTemp(); 
-        emit("+", targetId, "1", t); 
-        emit(":=", t, "", targetId);
-        emitQuad("+", targetId, "1", t); 
+    case 31: { // i++ (后缀自增)
+        // 后缀自增：先保存原值，再自增，然后返回原值
+        string targetId = popped[0].name;
+        string oldValue = newTemp();
+        emit(":=", targetId, "", oldValue);  // 保存原值
+        emitQuad("=", targetId, "_", oldValue);
+        string t = newTemp();
+        emit("+", targetId, "1", t);         // 计算新值
+        emit(":=", t, "", targetId);         // 自增
+        emitQuad("+", targetId, "1", t);
         emitQuad("=", t, "_", targetId);
-        res.name = targetId; 
+        res.name = oldValue;                  // 返回原值
         break;
     }
-    case 33: case 34: {
-        string targetId = (prodId == 33 ? popped[0].name : popped[1].name);
-        string t = newTemp(); 
-        emit("-", targetId, "1", t); 
-        emit(":=", t, "", targetId);
-        emitQuad("-", targetId, "1", t); 
+    case 32: { // ++i (前缀自增)
+        // 前缀自增：先自增，然后返回新值
+        string targetId = popped[1].name;
+        string t = newTemp();
+        emit("+", targetId, "1", t);         // 计算新值
+        emit(":=", t, "", targetId);         // 自增
+        emitQuad("+", targetId, "1", t);
         emitQuad("=", t, "_", targetId);
-        res.name = targetId; 
+        res.name = targetId;                  // 返回新值（自增后的值）
+        break;
+    }
+    case 33: { // i-- (后缀自减)
+        // 后缀自减：先保存原值，再自减，然后返回原值
+        string targetId = popped[0].name;
+        string oldValue = newTemp();
+        emit(":=", targetId, "", oldValue);  // 保存原值
+        emitQuad("=", targetId, "_", oldValue);
+        string t = newTemp();
+        emit("-", targetId, "1", t);         // 计算新值
+        emit(":=", t, "", targetId);         // 自减
+        emitQuad("-", targetId, "1", t);
+        emitQuad("=", t, "_", targetId);
+        res.name = oldValue;                  // 返回原值
+        break;
+    }
+    case 34: { // --i (前缀自减)
+        // 前缀自减：先自减，然后返回新值
+        string targetId = popped[1].name;
+        string t = newTemp();
+        emit("-", targetId, "1", t);         // 计算新值
+        emit(":=", t, "", targetId);         // 自减
+        emitQuad("-", targetId, "1", t);
+        emitQuad("=", t, "_", targetId);
+        res.name = targetId;                  // 返回新值（自减后的值）
         break;
     }
     case 36: { // break
@@ -205,15 +254,31 @@ SemItem CodeGenerator::handleProduction(int prodId, const vector<SemItem>& poppe
 void CodeGenerator::printTAC() const {
     cout << "\n--- 生成的三地址码 (TAC) ---" << endl;
     for (auto& t : tacCode) {
-        cout << "L" << left << setw(3) << t.addr << "| ";
-        if (t.op == "goto") cout << "goto " << t.result << endl;
-        else if (t.op == "jz") cout << "if " << t.arg1 << " == 0 goto " << t.result << endl;
-        else if (t.op == "jnz") cout << "if " << t.arg1 << " != 0 goto " << t.result << endl;
-        else if (t.op == "decl") cout << "decl " << t.arg1 << " " << t.result << endl;
-        else if (t.op == ":=") cout << t.result << " := " << t.arg1 << endl;
-        else if (t.op == "neg") cout << t.result << " := neg " << t.arg1 << endl;
-        else if (t.op == "!") cout << t.result << " := ! " << t.arg1 << endl;
-        else cout << t.result << " := " << t.arg1 << " " << t.op << " " << t.arg2 << endl;
+        cout << "L" << right << setw(3) << t.addr << " | ";
+        if (t.op == "goto") {
+            cout << "goto " << t.result << endl;
+        }
+        else if (t.op == "jz") {
+            cout << "if " << left << setw(10) << t.arg1 << " == 0 goto " << t.result << endl;
+        }
+        else if (t.op == "jnz") {
+            cout << "if " << left << setw(10) << t.arg1 << " != 0 goto " << t.result << endl;
+        }
+        else if (t.op == "decl") {
+            cout << "decl " << left << setw(8) << t.arg1 << " " << t.result << endl;
+        }
+        else if (t.op == ":=") {
+            cout << left << setw(12) << t.result << " := " << t.arg1 << endl;
+        }
+        else if (t.op == "neg") {
+            cout << left << setw(12) << t.result << " := neg " << t.arg1 << endl;
+        }
+        else if (t.op == "!") {
+            cout << left << setw(12) << t.result << " := ! " << t.arg1 << endl;
+        }
+        else {
+            cout << left << setw(12) << t.result << " := " << setw(10) << t.arg1 << " " << setw(4) << t.op << " " << t.arg2 << endl;
+        }
     }
 }
 

@@ -4,7 +4,22 @@
 
 using namespace std;
 
+// ============================================================================
+// LR(1) 语法分析器实现 (parser.cpp)
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// Parser 构造函数
+// ----------------------------------------------------------------------------
+// 功能: 初始化语法分析器
+// 步骤:
+//   1. 定义所有产生式规则（46个产生式）
+//   2. 构建非终结符集合 Vn 和终结符集合 Vt
+//   3. 计算所有非终结符的 First 集合
+//   4. 构建 LR(1) 分析表
 Parser::Parser() {
+    // 定义所有产生式规则
+    // 产生式编号从 0 开始，0 是增广产生式 S' → B
     productions = {
         {0, "S'", {"B"}},
         {1, "A", {"while", "(", "L", ")", "M", "{", "B", "}"}},
@@ -56,10 +71,21 @@ Parser::Parser() {
     }
     Vt.insert("#");
 
+    // 计算所有非终结符的 First 集合
     computeFirst();
+    // 构建 LR(1) 分析表
     buildLR1Table();
 }
 
+// ----------------------------------------------------------------------------
+// computeFirst - 计算所有非终结符的 First 集合
+// ----------------------------------------------------------------------------
+// 算法: 迭代算法，直到没有新的元素加入
+// 规则:
+//   - 如果 A → ε，则 epsilon ∈ First(A)
+//   - 如果 A → aα（a 是终结符），则 a ∈ First(A)
+//   - 如果 A → Bα（B 是非终结符），则 First(B) - {epsilon} ⊆ First(A)
+//     如果 epsilon ∈ First(B)，则继续考虑 α
 void Parser::computeFirst() {
     bool changed = true;
     while (changed) {
@@ -67,9 +93,14 @@ void Parser::computeFirst() {
         for (auto& p : productions) {
             set<string>& first = firstSets[p.left];
             size_t before = first.size();
+            
+            // 空产生式：epsilon ∈ First(A)
             if (p.right.empty()) first.insert("epsilon");
+            // 右部第一个符号是终结符
             else if (Vt.count(p.right[0])) first.insert(p.right[0]);
+            // 右部第一个符号是非终结符
             else {
+                // First(B) - {epsilon} ⊆ First(A)
                 for (auto& s : firstSets[p.right[0]]) if (s != "epsilon") first.insert(s);
             }
             if (first.size() > before) changed = true;
@@ -227,4 +258,7 @@ void Parser::saveTableToCSV(const string& filename) {
     }
     out.close();
 }
+
+
+
 

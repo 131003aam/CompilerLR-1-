@@ -2,7 +2,42 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "运行编译器（推荐）",
+            "name": "运行编译器（读取 test.txt）",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/compiler.exe",
+            "args": ["test.txt"],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "miDebuggerPath": "gdb.exe",
+            "setupCommands": [
+                {
+                    "description": "为 gdb 启用整齐打印",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ],
+            "preLaunchTask": "编译 C++"
+        },
+        {
+            "name": "运行编译器（读取 test2.txt）",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/compiler.exe",
+            "args": ["test2.txt"],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "miDebuggerPath": "gdb.exe",
+            "preLaunchTask": "编译 C++"
+        },
+        {
+            "name": "运行编译器（默认文件）",
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/compiler.exe",
