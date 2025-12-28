@@ -1,0 +1,13 @@
+{
+    "files.associations": {
+        "*.cpp": "cpp",
+        "*.h": "cpp"
+    },
+    "C_Cpp.default.compilerPath": "g++.exe",
+    "C_Cpp.default.cppStandard": "c++11",
+    "code-runner.runInTerminal": true,
+    "code-runner.executorMap": {
+        "cpp": "cd $dir && g++ -o $fileNameWithoutExt.exe $fileName -std=c++11 && $fileNameWithoutExt.exe"
+    }
+}
+

@@ -1,0 +1,30 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "编译 C++",
+            "type": "shell",
+            "command": "g++",
+            "args": [
+                "-o",
+                "compiler.exe",
+                "main.cpp",
+                "lexer.cpp",
+                "parser.cpp",
+                "codegen.cpp",
+                "compiler.cpp",
+                "-std=c++11"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "presentation": {
+                "reveal": "silent",
+                "panel": "shared"
+            },
+            "problemMatcher": ["$gcc"]
+        }
+    ]
+}
+
