@@ -8,6 +8,9 @@ using namespace std;
 // 词法分析器实现 (lexer.cpp)
 // ============================================================================
 
+// 制表符宽度（可配置，通常为4或8）
+static const int TAB_WIDTH = 4;
+
 // ----------------------------------------------------------------------------
 // isIdStart - 判断字符是否为标识符的起始字符
 // ----------------------------------------------------------------------------
@@ -77,8 +80,14 @@ vector<Word> Lexer::performLexicalAnalysis(const string& input) {
             continue;
         }
         if (isspace(input[i])) {
-            if (input[i] == '\t') col += 4;
-            else col++;
+            if (input[i] == '\t') {
+                // 制表符：移动到下一个制表符停止位
+                // 计算下一个制表符停止位置：((col - 1) / TAB_WIDTH + 1) * TAB_WIDTH + 1
+                int nextTabStop = ((col - 1) / TAB_WIDTH + 1) * TAB_WIDTH + 1;
+                col = nextTabStop;
+            } else {
+                col++;
+            }
             i++;
             continue;
         }
@@ -95,14 +104,19 @@ vector<Word> Lexer::performLexicalAnalysis(const string& input) {
         
         // 处理多行注释 /* */
         if (input[i] == '/' && i + 1 < len && input[i + 1] == '*') {
+            int commentStartLine = startLine;
+            int commentStartCol = startCol;
             i += 2;  // 跳过 /*
             col += 2;
             bool foundEnd = false;
+            int lastLine = line, lastCol = col;  // 记录最后扫描到的位置
             while (i < len) {
                 if (input[i] == '\n') {
                     line++;
                     col = 1;
                     i++;
+                    lastLine = line;
+                    lastCol = col;
                 }
                 else if (input[i] == '*' && i + 1 < len && input[i + 1] == '/') {
                     // 找到注释结束
@@ -114,10 +128,19 @@ vector<Word> Lexer::performLexicalAnalysis(const string& input) {
                 else {
                     i++;
                     col++;
+                    lastLine = line;
+                    lastCol = col;
                 }
             }
             if (!foundEnd) {
-                reportLexicalError(startLine, startCol, '\0', "多行注释未闭合，缺少 '*/'");
+                // 改进错误信息：显示注释开始位置和文件结束位置
+                string msg = "多行注释未闭合：注释从第" + to_string(commentStartLine) + "行第" + 
+                            to_string(commentStartCol) + "列开始（/*），但未找到结束标记（*/）";
+                if (lastLine > commentStartLine) {
+                    msg += "。注释跨越了" + to_string(lastLine - commentStartLine + 1) + "行，在文件末尾仍未闭合";
+                }
+                msg += "。提示：从第 " + to_string(commentStartLine) + " 行开始的 '/*' 未找到匹配的 '*/'";
+                reportLexicalError(commentStartLine, commentStartCol, '\0', msg);
             }
             continue;
         }
@@ -139,19 +162,26 @@ vector<Word> Lexer::performLexicalAnalysis(const string& input) {
         }
         else if (isdigit(input[i])) {
             int dot = 0;
+            int dotLine = startLine, dotCol = startCol;  // 记录小数点的位置
             while (i < len && (isdigit(input[i]) || input[i] == '.')) {
                 if (input[i] == '.') {
                     if (dot > 0) {
-                        reportLexicalError(line, col, input[i], "数字中不能有多个小数点");
+                        // 使用Token起始位置报告错误，更准确
+                        reportLexicalError(startLine, startCol, input[i], 
+                            "数字中不能有多个小数点（第一个小数点在数字开始位置）");
                         break;
                     }
                     dot++;
+                    dotLine = line;
+                    dotCol = col;
                 }
                 buf += input[i++];
                 col++;
             }
             if (buf.back() == '.') {
-                reportLexicalError(line, col - 1, '.', "数字不能以小数点结尾");
+                // 使用Token起始位置和实际小数点位置报告错误
+                reportLexicalError(startLine, startCol, '.', 
+                    "数字不能以小数点结尾（数字从第" + to_string(startLine) + "行第" + to_string(startCol) + "列开始）");
             }
             tokens.push_back({ 1, buf, "数字", startLine, startCol });
         }
@@ -162,7 +192,8 @@ vector<Word> Lexer::performLexicalAnalysis(const string& input) {
                 col += 2;
             }
             else {
-                reportLexicalError(line, col, input[i], "非法字符 '&'，期望 '&&'");
+                reportLexicalError(startLine, startCol, input[i], 
+                    "缺少运算符：期望 '&&'（逻辑与），但遇到单个 '&'。建议：检查是否遗漏了第二个 '&'");
                 buf += input[i++];
                 tokens.push_back({ 3, buf, "符号", startLine, startCol });
                 col++;
@@ -175,7 +206,8 @@ vector<Word> Lexer::performLexicalAnalysis(const string& input) {
                 col += 2;
             }
             else {
-                reportLexicalError(line, col, input[i], "非法字符 '|'，期望 '||'");
+                reportLexicalError(startLine, startCol, input[i], 
+                    "缺少运算符：期望 '||'（逻辑或），但遇到单个 '|'。建议：检查是否遗漏了第二个 '|'");
                 buf += input[i++];
                 tokens.push_back({ 3, buf, "符号", startLine, startCol });
                 col++;
@@ -254,8 +286,14 @@ vector<Word> Lexer::performLexicalAnalysis(const string& input) {
             col++;
         }
         else {
-            // 非法字符
-            reportLexicalError(line, col, input[i], "非法字符");
+            // 非法字符 - 提供更具体的错误信息
+            string charDesc = "";
+            if (input[i] == '\0') charDesc = "空字符";
+            else if (input[i] < 32) charDesc = "控制字符（ASCII码: " + to_string((int)input[i]) + "）";
+            else charDesc = string("'") + input[i] + "'";
+            
+            reportLexicalError(startLine, startCol, input[i], 
+                "非法字符 " + charDesc + "。建议：检查是否使用了不支持的字符，或是否遗漏了运算符/分隔符");
             buf += input[i++];
             tokens.push_back({ 3, buf, "符号", startLine, startCol });
             col++;

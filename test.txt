@@ -1,8 +1,3 @@
-while ( true ) { 
-    float b_flag = 1.5 ; 
-    if_val = a_var ; 
-    while ( b < 1 ) { 
-        break ; 
-    } 
-    continue ; 
-    b = a_var ++ ; 
+while (true {
+    int a = 1;
+}

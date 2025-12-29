@@ -10,6 +10,94 @@ using namespace std;
 // ============================================================================
 
 // ----------------------------------------------------------------------------
+// 诊断常见语法错误模式
+// ----------------------------------------------------------------------------
+static string diagnoseSyntaxError(const string& currentSymbol, const set<string>& expected, 
+                                  const stack<string>& symbolStack, const vector<Word>& tokens, int ptr) {
+    // 1. 检查是否缺少分号
+    if (expected.count(";")) {
+        // 检查当前符号是否是语句的延续
+        if (currentSymbol != ";" && currentSymbol != "#") {
+            return "缺少分号 ';'。建议：在语句末尾添加分号";
+        }
+    }
+    
+    // 2. 检查是否缺少右括号
+    if (expected.count(")")) {
+        // 检查符号栈中是否有未匹配的左括号
+        stack<string> tmpCheck = symbolStack;
+        vector<string> symbols;
+        while (!tmpCheck.empty()) {
+            symbols.push_back(tmpCheck.top());
+            tmpCheck.pop();
+        }
+        reverse(symbols.begin(), symbols.end());
+        
+        int openParens = 0, closeParens = 0;
+        for (const auto& sym : symbols) {
+            if (sym == "(") openParens++;
+            else if (sym == ")") closeParens++;
+        }
+        
+        if (openParens > closeParens) {
+            return "缺少右括号 ')'。建议：检查是否有未闭合的左括号 '('";
+        }
+    }
+    
+    // 3. 检查是否缺少右花括号
+    if (expected.count("}")) {
+        stack<string> tmpCheck = symbolStack;
+        vector<string> symbols;
+        while (!tmpCheck.empty()) {
+            symbols.push_back(tmpCheck.top());
+            tmpCheck.pop();
+        }
+        reverse(symbols.begin(), symbols.end());
+        
+        int openBraces = 0, closeBraces = 0;
+        for (const auto& sym : symbols) {
+            if (sym == "{") openBraces++;
+            else if (sym == "}") closeBraces++;
+        }
+        
+        if (openBraces > closeBraces) {
+            // 注意：这里无法直接访问braceLineStack，所以只提供通用提示
+            // 具体的位置信息会在主错误处理中通过braceLineStack提供
+            return "缺少右花括号 '}'。建议：检查是否有未闭合的左花括号 '{'";
+        }
+    }
+    
+    // 4. 检查运算符位置错误
+    if (currentSymbol == "+" || currentSymbol == "-" || currentSymbol == "*" || currentSymbol == "/") {
+        // 如果期望的是标识符、数字或左括号，可能是运算符位置错误
+        if (expected.count("i") || expected.count("n") || expected.count("(")) {
+            return "运算符位置错误：'" + currentSymbol + "' 出现在不期望的位置。建议：检查表达式语法";
+        }
+    }
+    
+    // 5. 检查关键字拼写错误（如果当前符号是标识符，但期望的是关键字）
+    set<string> keywords = {"while", "break", "continue", "int", "float", "true", "false"};
+    if (currentSymbol == "i" && !expected.count("i")) {
+        // 当前是标识符，但期望的不是标识符，可能是关键字拼写错误
+        for (const auto& kw : keywords) {
+            if (expected.count(kw)) {
+                return "可能是关键字拼写错误。当前是标识符，但期望关键字 '" + kw + "'";
+            }
+        }
+    }
+    
+    // 6. 检查是否在表达式中间遇到意外的符号
+    if (expected.count("i") || expected.count("n") || expected.count("(") || 
+        expected.count("true") || expected.count("false")) {
+        if (currentSymbol == "}" || currentSymbol == ";" || currentSymbol == ")") {
+            return "表达式不完整。建议：检查表达式是否缺少操作数或运算符";
+        }
+    }
+    
+    return "";  // 未识别到特定模式，返回空字符串
+}
+
+// ----------------------------------------------------------------------------
 // WhileCompiler 构造函数
 // ----------------------------------------------------------------------------
 // 功能: 初始化编译器，创建词法分析器、语法分析器和代码生成器
@@ -58,6 +146,7 @@ void WhileCompiler::run(const string& input) {
     stack<string> symbolStack;  // 符号栈：存储已识别的符号
     symbolStack.push("#");      // 栈底标记
     vector<SemItem> semStack;   // 语义栈：存储语义信息（变量名、临时变量等）
+    stack<int> braceLineStack; // 代码块位置栈：记录每个 { 的行号
     int ptr = 0;                // 输入指针：指向当前处理的 Token
 
     // 获取分析表和相关数据结构
@@ -127,8 +216,7 @@ void WhileCompiler::run(const string& input) {
         if (!actionTable.at(s).count(a)) {
             // ========== 语法错误处理 ==========
             hasError = true;
-            string errorMsg = "[语法错误] 第" + to_string(w.line) + "行, 第" + to_string(w.col) + "列: ";
-            errorMsg += "遇到意外的符号 '" + a + "'";
+            string errorMsg;
             
             // 收集期望的符号（用于错误提示）
             // 从当前状态的所有项目中提取期望的符号
@@ -148,13 +236,114 @@ void WhileCompiler::run(const string& input) {
                 }
             }
             
+            // 特殊处理：如果遇到文件结束符 # 且仍在代码块内，优先报告缺少 }
+            if (a == "#") {
+                // 检查符号栈中是否有未闭合的 {
+                // 从栈底到栈顶遍历，统计 { 和 } 的匹配情况
+                stack<string> tmpCheck = symbolStack;
+                vector<string> symbols;  // 从栈底到栈顶的符号序列
+                while (!tmpCheck.empty()) {
+                    symbols.push_back(tmpCheck.top());
+                    tmpCheck.pop();
+                }
+                reverse(symbols.begin(), symbols.end());  // 反转得到从栈底到栈顶的顺序
+                
+                // 统计 { 和 } 的数量
+                int openBraces = 0;
+                int closeBraces = 0;
+                for (const auto& sym : symbols) {
+                    if (sym == "{") openBraces++;
+                    else if (sym == "}") closeBraces++;
+                }
+                
+                // 如果 { 的数量大于 } 的数量，或者期望的符号中包含 }，说明缺少右花括号
+                if (openBraces > closeBraces || expected.count("}")) {
+                    errorMsg = "[语法错误] 缺少右花括号 '}'";
+                    // 如果位置栈不为空，提示未匹配的 { 的位置
+                    if (!braceLineStack.empty()) {
+                        int unclosedBraceLine = braceLineStack.top();
+                        errorMsg += "\n提示：从第 " + to_string(unclosedBraceLine) + " 行开始的 '{' 未找到匹配的 '}'";
+                    }
+                    errorMessages.push_back(errorMsg);
+                    cout << "\n" << errorMsg << endl;
+                    cout << left << setw(6) << step << setw(25) << stStr << setw(20) << syStr << setw(12) << a << "错误: 缺少右花括号" << endl;
+                    return;
+                }
+            }
+            
+            // 常规错误处理
+            errorMsg = "[语法错误] 第" + to_string(w.line) + "行, 第" + to_string(w.col) + "列: ";
+            errorMsg += "遇到意外的符号 '" + a + "'";
+            
+            // 尝试诊断常见错误模式
+            string diagnosis = diagnoseSyntaxError(a, expected, symbolStack, tokens, ptr);
+            if (!diagnosis.empty()) {
+                errorMsg += "\n诊断: " + diagnosis;
+            }
+            
+            // 如果期望的符号中包含 }，且位置栈不为空，提示未匹配的 { 的位置
+            if (expected.count("}") && !braceLineStack.empty()) {
+                int unclosedBraceLine = braceLineStack.top();
+                errorMsg += "\n提示：从第 " + to_string(unclosedBraceLine) + " 行开始的 '{' 未找到匹配的 '}'";
+            }
+            
+            // 格式化期望符号列表（分组显示）
             if (!expected.empty()) {
+                // 分组：关键字、运算符、分隔符、其他
+                vector<string> keywords, operators, separators, others;
+                set<string> kwSet = {"while", "break", "continue", "int", "float", "true", "false"};
+                set<string> opSet = {"+", "-", "*", "/", "++", "--", "&&", "||", "!", 
+                                    ">", "<", "==", ">=", "<=", "!=", "="};
+                set<string> sepSet = {"(", ")", "{", "}", ";", ","};
+                
+                for (const auto& exp : expected) {
+                    if (kwSet.count(exp)) keywords.push_back(exp);
+                    else if (opSet.count(exp)) operators.push_back(exp);
+                    else if (sepSet.count(exp)) separators.push_back(exp);
+                    else others.push_back(exp);
+                }
+                
                 errorMsg += "\n期望的符号: ";
-                bool first = true;
-                for (auto& exp : expected) {
-                    if (!first) errorMsg += ", ";
-                    errorMsg += "'" + exp + "'";
-                    first = false;
+                bool hasContent = false;
+                
+                if (!keywords.empty()) {
+                    errorMsg += "关键字(";
+                    for (size_t i = 0; i < keywords.size(); i++) {
+                        if (i > 0) errorMsg += ", ";
+                        errorMsg += "'" + keywords[i] + "'";
+                    }
+                    errorMsg += ")";
+                    hasContent = true;
+                }
+                
+                if (!operators.empty()) {
+                    if (hasContent) errorMsg += ", ";
+                    errorMsg += "运算符(";
+                    for (size_t i = 0; i < operators.size(); i++) {
+                        if (i > 0) errorMsg += ", ";
+                        errorMsg += "'" + operators[i] + "'";
+                    }
+                    errorMsg += ")";
+                    hasContent = true;
+                }
+                
+                if (!separators.empty()) {
+                    if (hasContent) errorMsg += ", ";
+                    errorMsg += "分隔符(";
+                    for (size_t i = 0; i < separators.size(); i++) {
+                        if (i > 0) errorMsg += ", ";
+                        errorMsg += "'" + separators[i] + "'";
+                    }
+                    errorMsg += ")";
+                    hasContent = true;
+                }
+                
+                if (!others.empty()) {
+                    if (hasContent) errorMsg += ", ";
+                    for (size_t i = 0; i < others.size(); i++) {
+                        if (i > 0) errorMsg += ", ";
+                        errorMsg += "'" + others[i] + "'";
+                    }
                 }
             }
             
@@ -171,6 +360,16 @@ void WhileCompiler::run(const string& input) {
             // 如果遇到 while 关键字，进入循环处理
             if (a == "while") {
                 codegen.enterLoop();  // 记录循环开始地址，初始化 break/continue 列表
+            }
+            // 跟踪代码块位置：遇到 { 时记录行号
+            if (a == "{") {
+                braceLineStack.push(w.line);
+            }
+            // 遇到 } 时弹出对应的 {
+            else if (a == "}") {
+                if (!braceLineStack.empty()) {
+                    braceLineStack.pop();
+                }
             }
             // 输出分析步骤
             cout << left << setw(6) << step++ << setw(25) << stStr << setw(20) << syStr << setw(12) << a << setw(15) << "移进 S" + to_string(act.target) << endl;
