@@ -5,16 +5,10 @@
 
 using namespace std;
 
-// ============================================================================
-// 编译器主类实现 (compiler.cpp)
-// ============================================================================
-
-// ----------------------------------------------------------------------------
-// 诊断常见语法错误模式
-// ----------------------------------------------------------------------------
+// 语法错误诊断函数
 static string diagnoseSyntaxError(const string& currentSymbol, const set<string>& expected, 
                                   const stack<string>& symbolStack, const vector<Word>& tokens, int ptr) {
-    // 1. 检查是否缺少分号
+    // 是否缺少分号
     if (expected.count(";")) {
         // 检查当前符号是否是语句的延续
         if (currentSymbol != ";" && currentSymbol != "#") {
@@ -22,18 +16,18 @@ static string diagnoseSyntaxError(const string& currentSymbol, const set<string>
         }
     }
     
-    // 2. 检查是否缺少右括号
+    // 是否缺少右括号
     if (expected.count(")")) {
         // 检查符号栈中是否有未匹配的左括号
-        stack<string> tmpCheck = symbolStack;
-        vector<string> symbols;
+        stack<string> tmpCheck = symbolStack;  //复制栈
+        vector<string> symbols; //创建一个向量
         while (!tmpCheck.empty()) {
-            symbols.push_back(tmpCheck.top());
+            symbols.push_back(tmpCheck.top()); //将栈顶符号存入symbols
             tmpCheck.pop();
         }
-        reverse(symbols.begin(), symbols.end());
+        reverse(symbols.begin(), symbols.end()); //这样就与源代码里的顺序一样了
         
-        int openParens = 0, closeParens = 0;
+        int openParens = 0, closeParens = 0; //统计计数
         for (const auto& sym : symbols) {
             if (sym == "(") openParens++;
             else if (sym == ")") closeParens++;
@@ -44,7 +38,7 @@ static string diagnoseSyntaxError(const string& currentSymbol, const set<string>
         }
     }
     
-    // 3. 检查是否缺少右花括号
+    // 是否缺少右花括号
     if (expected.count("}")) {
         stack<string> tmpCheck = symbolStack;
         vector<string> symbols;
@@ -61,13 +55,12 @@ static string diagnoseSyntaxError(const string& currentSymbol, const set<string>
         }
         
         if (openBraces > closeBraces) {
-            // 注意：这里无法直接访问braceLineStack，所以只提供通用提示
-            // 具体的位置信息会在主错误处理中通过braceLineStack提供
+            // 这里只能接收到传参进来的符号栈，具体定位在外面
             return "缺少右花括号 '}'。建议：检查是否有未闭合的左花括号 '{'";
         }
     }
     
-    // 4. 检查运算符位置错误
+    // 检查运算符位置错误
     if (currentSymbol == "+" || currentSymbol == "-" || currentSymbol == "*" || currentSymbol == "/") {
         // 如果期望的是标识符、数字或左括号，可能是运算符位置错误
         if (expected.count("i") || expected.count("n") || expected.count("(")) {
@@ -118,7 +111,7 @@ void WhileCompiler::run(const string& input) {
     errorMessages.clear();
     lexer.clearErrors();
     
-    // ========== 阶段 1: 词法分析 ==========
+    // 阶段1:词法分析
     // 将源代码字符串分解为词法单元序列
     vector<Word> tokens = lexer.performLexicalAnalysis(input);
 
@@ -139,8 +132,8 @@ void WhileCompiler::run(const string& input) {
         return;
     }
 
-    // ========== 阶段 2: 语法分析和代码生成 ==========
-    // 初始化 LR(1) 分析栈
+    // 阶段2:语法分析和代码生成
+    // 初始化LR(1)分析栈
     stack<int> stateStack;      // 状态栈：存储分析过程中的状态编号
     stateStack.push(0);         // 初始状态为 0
     stack<string> symbolStack;  // 符号栈：存储已识别的符号
