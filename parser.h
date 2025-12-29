@@ -12,6 +12,7 @@ class Parser {
 private:
     vector<Production> productions;
     set<string> Vn, Vt;  // 非终结符和终结符集合
+    vector<string> VnOrder, VtOrder;  // 保持符号的原始顺序
     map<string, set<string>> firstSets;
     vector<vector<LR1Item>> states;
     map<int, map<string, Action>> actionTable;
