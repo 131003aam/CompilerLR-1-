@@ -1,0 +1,15 @@
+while ( a >= 0 ) {
+    int x = 10 ;
+    float y = 2.5 ;
+    x = x + y ;
+    x = x - y ;
+    x = x * y ;
+    x = x / y ;
+    while(true){
+        x++;
+        ++x;
+        y--;
+        --y;
+        break;
+    }
+}

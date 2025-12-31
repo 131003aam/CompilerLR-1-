@@ -4,6 +4,7 @@
 #include "types.h"
 #include <vector>
 #include <stack>
+#include <set>
 
 // === 代码生成器 ===
 
@@ -19,6 +20,9 @@ private:
     stack<vector<int>> continueLists;
 
     string currentStepQuads; // 保存当前步骤生成的四元式字符串
+    
+    // 已声明变量集合（用于隐式声明）
+    set<string> declaredVars;
 
     // 生成临时变量名
     string newTemp();

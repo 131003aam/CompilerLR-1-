@@ -6,7 +6,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/compiler.exe",
-            "args": ["test.txt"],
+            "args": ["5.txt"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
             "environment": [],
@@ -23,11 +23,11 @@
             "preLaunchTask": "编译 C++"
         },
         {
-            "name": "运行编译器（读取 test2.txt）",
+            "name": "运行编译器（读取 1.txt）",
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/compiler.exe",
-            "args": ["test2.txt"],
+            "args": ["1.txt"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
             "environment": [],

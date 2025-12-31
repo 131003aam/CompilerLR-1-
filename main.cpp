@@ -29,8 +29,7 @@ int main(int argc, char* argv[]) {
     if (argc > 1) {
         filename = argv[1];
     } else {
-        // 默认使用 test.txt
-        filename = "test.txt";
+        filename = "2.txt";  // 默认测试文件名，可以修改为其他文件名
     }
     
     // 从文件读取代码

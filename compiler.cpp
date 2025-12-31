@@ -55,7 +55,7 @@ static string diagnoseSyntaxError(const string& currentSymbol, const set<string>
         }
         
         if (openBraces > closeBraces) {
-            // 这里只能接收到传参进来的符号栈，具体定位在外面
+            // 这里只能接收到传参进来的符号栈，具体定位在主循环中
             return "缺少右花括号 '}'。建议：检查是否有未闭合的左花括号 '{'";
         }
     }
@@ -68,7 +68,7 @@ static string diagnoseSyntaxError(const string& currentSymbol, const set<string>
         }
     }
     
-    // 5. 检查关键字拼写错误（如果当前符号是标识符，但期望的是关键字）
+    // 检查关键字拼写错误（如果当前符号是标识符，但期望的是关键字）
     set<string> keywords = {"while", "break", "continue", "int", "float", "true", "false"};
     if (currentSymbol == "i" && !expected.count("i")) {
         // 当前是标识符，但期望的不是标识符，可能是关键字拼写错误
@@ -79,7 +79,7 @@ static string diagnoseSyntaxError(const string& currentSymbol, const set<string>
         }
     }
     
-    // 6. 检查是否在表达式中间遇到意外的符号
+    // 检查是否在表达式中间遇到意外的符号
     if (expected.count("i") || expected.count("n") || expected.count("(") || 
         expected.count("true") || expected.count("false")) {
         if (currentSymbol == "}" || currentSymbol == ";" || currentSymbol == ")") {
@@ -90,29 +90,15 @@ static string diagnoseSyntaxError(const string& currentSymbol, const set<string>
     return "";  // 未识别到特定模式，返回空字符串
 }
 
-// ----------------------------------------------------------------------------
-// WhileCompiler 构造函数
-// ----------------------------------------------------------------------------
-// 功能: 初始化编译器，创建词法分析器、语法分析器和代码生成器
-// 说明: Parser 构造函数会自动构建 LR(1) 分析表
 WhileCompiler::WhileCompiler() {
 }
 
-// ----------------------------------------------------------------------------
-// run - 执行完整的编译过程
-// ----------------------------------------------------------------------------
-// 功能: 将源代码编译为三地址码
-// 流程:
-//   1. 词法分析：将源代码转换为 Token 序列
-//   2. 语法分析：使用 LR(1) 方法验证语法并生成代码
-//   3. 输出结果：显示词法分析结果、语法分析过程和生成的三地址码
 void WhileCompiler::run(const string& input) {
     hasError = false;
-    errorMessages.clear();
+    errorMessages.clear(); 
     lexer.clearErrors();
     
     // 阶段1:词法分析
-    // 将源代码字符串分解为词法单元序列
     vector<Word> tokens = lexer.performLexicalAnalysis(input);
 
     cout << "--- 词法分析结果 ---" << endl;
@@ -139,55 +125,56 @@ void WhileCompiler::run(const string& input) {
     stack<string> symbolStack;  // 符号栈：存储已识别的符号
     symbolStack.push("#");      // 栈底标记
     vector<SemItem> semStack;   // 语义栈：存储语义信息（变量名、临时变量等）
-    stack<int> braceLineStack; // 代码块位置栈：记录每个 { 的行号
-    int ptr = 0;                // 输入指针：指向当前处理的 Token
+    stack<int> braceLineStack; // 代码块位置栈：记录每个{的行号
+    int ptr = 0;                // 输入指针：指向当前处理的Token
 
     // 获取分析表和相关数据结构
-    const auto& actionTable = parser.getActionTable();  // Action 表：状态 × 终结符 → 动作
-    const auto& gotoTable = parser.getGotoTable();      // Goto 表：状态 × 非终结符 → 新状态
+    const auto& actionTable = parser.getActionTable();  // Action表：状态×终结符->动作
+    const auto& gotoTable = parser.getGotoTable();      // Goto表：状态×非终结符->新状态
     const auto& productions = parser.getProductions();   // 产生式集合
-    const auto& states = parser.getStates();            // LR(1) 项目集集合
+    const auto& states = parser.getStates();            // LR(1)项目集集合
     const auto& Vt = parser.getVt();                    // 终结符集合
     const auto& Vn = parser.getVn();                    // 非终结符集合
 
     // 输出语法分析过程表头
-    cout << left << setw(6) << "步骤" << setw(25) << "状态栈" << setw(20) << "符号栈" << setw(12) << "当前输入" << setw(15) << "动作" << "生成四元式" << endl;
+    cout << left << setw(6) << "步骤" << setw(25) << "状态栈" << setw(20) << "符号栈" << setw(12) << "当前输入" << setw(15) << "动作" << endl;
     int step = 1;
 
-    // LR(1) 分析主循环
+    // LR(1)分析主循环
     while (true) {
         codegen.clearCurrentStepQuads();  // 清空当前步骤的四元式字符串
         
         // 获取当前状态和输入符号
         int s = stateStack.top();         // 当前状态
-        Word w = tokens[ptr];             // 当前输入 Token
+        Word w = tokens[ptr];             // 当前输入Token
 
-        // 将 Token 转换为分析表中使用的符号
-        // 关键字（36-42）直接使用 token 值
+        // 将Token转换为分析表中使用的符号
         // 标识符统一映射为 "i"，数字映射为 "n"
-        // 其他符号直接使用 token 值
+        // 关键字（36-42）或其他符号直接使用token值
         string a;
         if (w.sym >= 36 && w.sym <= 42) a = w.token;  // 关键字
         else if (w.token == "true" || w.token == "false") a = w.token;  // 布尔值
-        else a = (w.sym == 0 ? "i" : (w.sym == 1 ? "n" : w.token));  // 标识符→"i", 数字→"n", 其他→原值
+        else a = (w.sym == 0 ? "i" : (w.sym == 1 ? "n" : w.token));  // 标识符"i", 数字"n", 其他原值
 
+        // 状态栈显示
         string stStr = ""; 
         stack<int> tmpS = stateStack; 
-        vector<int> vS;
+        vector<int> vS; //临时容器
         while (!tmpS.empty()) { 
-            vS.push_back(tmpS.top()); 
+            vS.push_back(tmpS.top()); //将栈顶状态存入vS
             tmpS.pop(); 
         }
-        reverse(vS.begin(), vS.end());
+        reverse(vS.begin(), vS.end()); //这样就与源代码里的顺序一样了
         for (int x : vS) {
             if (stStr.length() > 0) stStr += " ";
-            stStr += to_string(x);
+            stStr += to_string(x); //将状态转换为字符串并存入stStr
         }
         // 限制状态栈显示长度
         if (stStr.length() > 23) {
             stStr = "..." + stStr.substr(stStr.length() - 20);
         }
 
+        // 符号栈显示
         string syStr = ""; 
         stack<string> tmpSy = symbolStack; 
         vector<string> vSy;
@@ -205,7 +192,7 @@ void WhileCompiler::run(const string& input) {
             syStr = "..." + syStr.substr(syStr.length() - 15);
         }
 
-        // 查找 Action 表中的动作
+        // 查找Action表中的动作
         if (!actionTable.at(s).count(a)) {
             // ========== 语法错误处理 ==========
             hasError = true;
@@ -229,10 +216,10 @@ void WhileCompiler::run(const string& input) {
                 }
             }
             
-            // 特殊处理：如果遇到文件结束符 # 且仍在代码块内，优先报告缺少 }
+            // 文件结束符特殊处理：如果遇到文件结束符#且仍在代码块内，优先报告缺少}
             if (a == "#") {
-                // 检查符号栈中是否有未闭合的 {
-                // 从栈底到栈顶遍历，统计 { 和 } 的匹配情况
+                // 检查符号栈中是否有未闭合的{
+                // 从栈底到栈顶遍历，统计{和}的匹配情况
                 stack<string> tmpCheck = symbolStack;
                 vector<string> symbols;  // 从栈底到栈顶的符号序列
                 while (!tmpCheck.empty()) {
@@ -241,7 +228,7 @@ void WhileCompiler::run(const string& input) {
                 }
                 reverse(symbols.begin(), symbols.end());  // 反转得到从栈底到栈顶的顺序
                 
-                // 统计 { 和 } 的数量
+                // 统计{和}的数量
                 int openBraces = 0;
                 int closeBraces = 0;
                 for (const auto& sym : symbols) {
@@ -249,10 +236,10 @@ void WhileCompiler::run(const string& input) {
                     else if (sym == "}") closeBraces++;
                 }
                 
-                // 如果 { 的数量大于 } 的数量，或者期望的符号中包含 }，说明缺少右花括号
+                // 如果{的数量大于}的数量，或者期望的符号中包含}，说明缺少右花括号
                 if (openBraces > closeBraces || expected.count("}")) {
-                    errorMsg = "[语法错误] 缺少右花括号 '}'";
-                    // 如果位置栈不为空，提示未匹配的 { 的位置
+                    errorMsg = "[语法错误] 缺少右花括号'}'";
+                    // 如果位置栈不为空，提示未匹配的{的位置
                     if (!braceLineStack.empty()) {
                         int unclosedBraceLine = braceLineStack.top();
                         errorMsg += "\n提示：从第 " + to_string(unclosedBraceLine) + " 行开始的 '{' 未找到匹配的 '}'";
@@ -274,7 +261,7 @@ void WhileCompiler::run(const string& input) {
                 errorMsg += "\n诊断: " + diagnosis;
             }
             
-            // 如果期望的符号中包含 }，且位置栈不为空，提示未匹配的 { 的位置
+            // 如果期望的符号中包含}，且位置栈不为空，提示未匹配的 { 的位置
             if (expected.count("}") && !braceLineStack.empty()) {
                 int unclosedBraceLine = braceLineStack.top();
                 errorMsg += "\n提示：从第 " + to_string(unclosedBraceLine) + " 行开始的 '{' 未找到匹配的 '}'";
@@ -350,15 +337,15 @@ void WhileCompiler::run(const string& input) {
 
         // ========== 移进动作 ==========
         if (act.type == ActionType::SHIFT) {
-            // 如果遇到 while 关键字，进入循环处理
+            // 如果遇到while关键字，进入循环处理
             if (a == "while") {
-                codegen.enterLoop();  // 记录循环开始地址，初始化 break/continue 列表
+                codegen.enterLoop();  // 记录循环开始地址，初始化break/continue列表
             }
-            // 跟踪代码块位置：遇到 { 时记录行号
+            // 跟踪代码块位置：遇到{时记录行号
             if (a == "{") {
                 braceLineStack.push(w.line);
             }
-            // 遇到 } 时弹出对应的 {
+            // 遇到}时弹出对应的{
             else if (a == "}") {
                 if (!braceLineStack.empty()) {
                     braceLineStack.pop();
@@ -369,7 +356,7 @@ void WhileCompiler::run(const string& input) {
             // 执行移进：将新状态和符号压入栈
             stateStack.push(act.target);
             symbolStack.push(a);
-            semStack.push_back({ w.token });  // 保存 Token 的原始值（用于代码生成）
+            semStack.push_back({ w.token });  // 保存Token的原始值（用于代码生成）
             ptr++;  // 移动输入指针
         }
         // ========== 归约动作 ==========
@@ -380,8 +367,8 @@ void WhileCompiler::run(const string& input) {
             // 从栈中弹出产生式右部长度的元素
             vector<SemItem> popped;
             for (int k = 0; k < (int)p.right.size(); k++) {
-                stateStack.pop();           // 弹出状态
-                symbolStack.pop();          // 弹出符号
+                stateStack.pop();  // 弹出状态
+                symbolStack.pop();  // 弹出符号
                 popped.push_back(semStack.back());  // 保存语义信息
                 semStack.pop_back();
             }

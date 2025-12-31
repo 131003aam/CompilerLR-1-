@@ -50,9 +50,10 @@ void CodeGenerator::exitLoop() {
     // 生成跳转到循环开始的指令（跳转到条件判断）
     emit("goto", "", "", "L" + to_string(testStart));
     emitQuad("j", "_", "_", to_string(testStart));
-    // exitAddr是循环结束的地址
+    // exitAddr是循环结束的地址（在生成goto之后计算，指向goto指令之后的位置）
+    // 这样break和条件跳转会跳转到循环结束的位置，而不是goto指令本身
     int exitAddr = (int)tacCode.size();
-    // 回填break：所有break语句跳转到循环结束标签
+    // 回填break：所有break语句跳转到循环结束标签（exitAddr位置，即goto指令之后）
     vector<int> brks = breakLists.top();
     breakLists.pop();
     for (int addr : brks) backpatch(addr, "L" + to_string(exitAddr));
@@ -95,7 +96,7 @@ void CodeGenerator::handleLoopCondition(const string& condition, const vector<Se
 
 // 处理产生式归约时的语义动作
 SemItem CodeGenerator::handleProduction(int prodId, const vector<SemItem>& popped, const vector<SemItem>& semStack) {
-    SemItem res = { "" };
+    SemItem res = { "" }; //临时容器
     
     switch (prodId) {
     case 38: { // M->epsilon
@@ -137,11 +138,17 @@ SemItem CodeGenerator::handleProduction(int prodId, const vector<SemItem>& poppe
         emit(popped[1].name, popped[0].name, popped[2].name, res.name); 
         emitQuad(popped[1].name, popped[0].name, popped[2].name, res.name); 
         break;
-    case 14: //赋值语句，S->i=E，返回左边的变量名
-        emit(":=", popped[2].name, "", popped[0].name); 
-        emitQuad("=", popped[2].name, "_", popped[0].name); 
-        res.name = popped[0].name; 
+    case 14: { //赋值语句，S->i=E，返回左边的变量名
+        string varName = popped[0].name;
+        // 如果变量未声明，记录为已声明（隐式声明，但不生成decl指令）
+        if (declaredVars.find(varName) == declaredVars.end()) {
+            declaredVars.insert(varName);
+        }
+        emit(":=", popped[2].name, "", varName); 
+        emitQuad("=", popped[2].name, "_", varName); 
+        res.name = varName; 
         break;
+    }
     case 15: case 16: case 18: case 19: //算术运算，E->E+F，返回临时变量
         res.name = newTemp();
         emit(popped[1].name, popped[0].name, popped[2].name, res.name);
@@ -214,20 +221,16 @@ SemItem CodeGenerator::handleProduction(int prodId, const vector<SemItem>& poppe
         handleContinue();
         break;
     }
-    case 39: case 40: { // int i; float i;
-        string type = popped[0].name;
+    case 39: case 40: { // int i; float i; 不显式生成decl，只记录变量已声明
         string id = popped[1].name;
-        emit("decl", type, "", id);
-        emitQuad("decl", type, "_", id);
+        declaredVars.insert(id); // 记录变量已声明，但不生成decl指令
         res.name = id;
         break;
     }
-    case 41: case 42: { // int i = E;
-        string type = popped[0].name;
+    case 41: case 42: { // int i = E; 不显式生成decl，只生成赋值
         string id = popped[1].name;
-        emit("decl", type, "", id);
+        declaredVars.insert(id); // 记录变量已声明，但不生成decl指令
         emit(":=", popped[3].name, "", id);
-        emitQuad("decl", type, "_", id);
         emitQuad("=", popped[3].name, "_", id);
         res.name = id;
         break;
@@ -253,8 +256,42 @@ SemItem CodeGenerator::handleProduction(int prodId, const vector<SemItem>& poppe
 
 void CodeGenerator::printTAC() const {
     cout << "\n--- 生成的三地址码 (TAC) ---" << endl;
-    for (auto& t : tacCode) {
-        cout << "L" << right << setw(3) << t.addr << " | ";
+    
+    // 收集所有作为跳转目标的地址（包括超出范围的，用于程序结束位置）
+    set<int> labelTargets;  // 存在的地址
+    set<int> endTargets;    // 超出范围的地址（程序结束位置）
+    for (const auto& t : tacCode) {
+        if (t.op == "goto" || t.op == "jz" || t.op == "jnz") {
+            // 解析跳转目标地址（格式：L数字）
+            if (t.result.length() > 1 && t.result[0] == 'L') {
+                try {
+                    int targetAddr = stoi(t.result.substr(1));
+                    if (targetAddr >= 0 && targetAddr < (int)tacCode.size()) {
+                        labelTargets.insert(targetAddr);
+                    } else if (targetAddr >= (int)tacCode.size()) {
+                        // 超出范围的地址，表示程序结束位置
+                        endTargets.insert(targetAddr);
+                    }
+                } catch (...) {
+                    // 如果不是数字格式，忽略（可能是PENDING_EXIT等占位符）
+                }
+            }
+        }
+    }
+    
+    // 输出三地址码，跳过decl指令，只在跳转目标处显示标号
+    for (const auto& t : tacCode) {
+        // 跳过decl指令，声明语句不应该出现在最终的三地址码中
+        if (t.op == "decl") {
+            continue;
+        }
+        
+        if (labelTargets.count(t.addr)) {
+            cout << "L" << right << setw(3) << t.addr << " | ";
+        } else {
+            cout << "    " << " | ";  // 对齐，但不显示标号
+        }
+        
         if (t.op == "goto") {
             cout << "goto " << t.result << endl;
         }
@@ -263,9 +300,6 @@ void CodeGenerator::printTAC() const {
         }
         else if (t.op == "jnz") {
             cout << "if " << left << setw(10) << t.arg1 << " != 0 goto " << t.result << endl;
-        }
-        else if (t.op == "decl") {
-            cout << "decl " << left << setw(8) << t.arg1 << " " << t.result << endl;
         }
         else if (t.op == ":=") {
             cout << left << setw(12) << t.result << " := " << t.arg1 << endl;
@@ -279,5 +313,10 @@ void CodeGenerator::printTAC() const {
         else {
             cout << left << setw(12) << t.result << " := " << setw(10) << t.arg1 << " " << setw(4) << t.op << " " << t.arg2 << endl;
         }
+    }
+    
+    // 输出程序结束位置的标号（如果有跳转到这些位置）
+    for (int addr : endTargets) {
+        cout << "L" << right << setw(3) << addr << " | " << endl;
     }
 }
